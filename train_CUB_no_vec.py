@@ -10,6 +10,7 @@ from torchvision import transforms
 import torchvision.datasets.folder as torch_folder
 from torch.utils.data import DataLoader,TensorDataset
 from torch.optim.lr_scheduler import StepLR
+import torchvision.models as models
 import argparse
 import models
 
@@ -33,10 +34,8 @@ parser.add_argument("-rn-m","--relation_model_file_name",type=str)
 parser.add_argument("-acc","--last_accuracy",type=float, default=0.0)
 parser.add_argument("-H","--last_H",type=float, default=0.0)
 parser.add_argument("-r","--root_path",type=str, default="./")
-parser.add_argument("-v","--vec",type=int, default=0, help="choose from: 0:attributes; 1:word2vec; 2:fastText; 3: word2vec::fastText")
-parser.add_argument("-i","--img_model",type=int, default=0, help="choose from: 0:U-Net(VGG16); 1:DeepLab(VGG16)")
+parser.add_argument("-i","--img_model",type=int, default=0, help="choose from: 0:VGG16; 1:DeepLab(VGG16)")
 parser.add_argument("-g-l","--gpu_list",type=str,help="gpu list for parallel computing e.g. 1,2,3")
-parser.add_argument("-all-c","--all_conv",type=str2bool, default=False, help="if only use conv layers, no fc layers")
 args = parser.parse_args()
 
 BATCH_SIZE = args.batch_size
@@ -44,11 +43,9 @@ TEST_BATCH_SIZE = args.test_batch_size
 EPISODE = args.episode
 LEARNING_RATE = args.learning_rate
 relation_model_path = args.root_path + "models/" + args.relation_model_file_name + ".pkl"
-VEC = args.vec
 IMG_MODEL = args.img_model
 gpu_list = list(map(int,args.gpu_list.split(",")))
 GPU = gpu_list[0]
-allConv = args. all_conv
 
 # Step 1: read basic information
 # class name list
@@ -106,75 +103,7 @@ trainval_loc = original_att_splits['trainval_loc'].squeeze() - 1
 test_seen_loc = original_att_splits['test_seen_loc'].squeeze() - 1
 test_unseen_loc = original_att_splits['test_unseen_loc'].squeeze() - 1
 
-# Step 3: read word embeddings
-# pre-trained word2vec model with google news
-# from gensim.models.keyedvectors import KeyedVectors
-# from gensim.models import word2vec
-# word2vec_path = drive_path + "data/word2vec/GoogleNews-vectors-negative300.bin"
-# model = KeyedVectors.load_word2vec_format(word2vec_path, binary=True)
-
-# word2vectors = []
-# for c_name in class_names:
-#   words = c_name.split('_')
-#   vec = np.array([0] * 300, dtype='float64')
-#   vec_num = 0
-#   for w in words:
-#     if w in model.vocab:
-#       vec_num += 1
-#       vec += model[w]
-#   word2vectors.append(vec/vec_num)
-# word2vectors = np.array(word2vectors)
-# print(word2vectors.shape)
-
-# pre-trained fastText model with common crawl
-# import io
-# fastText_path = "crawl-300d-2M.vec"
-# fin = io.open(fastText_path, 'r', encoding='utf-8', newline='\n', errors='ignore')
-# n, d = map(int, fin.readline().split())
-# lines = fin.readlines()
-# crawl_voc_list = {} # read word index first to avoid running out of RAM
-# for i in range(n):
-#   word = lines[i].split()[0]
-#   crawl_voc_list[word]=i
-
-# ftvectors = []
-# for c_name in class_names:
-#   words = c_name.split('_')
-#   vec = np.array([0] * 300, dtype='float64')
-#   vec_num = 0
-#   for w in words:
-#     if w in crawl_voc_list:
-#       index = crawl_voc_list[w]
-#       tokens = [float(num) for num in lines[index].split()[1:]]
-#       vec += tokens
-#   ftvectors.append(vec/vec_num)
-# ftvectors = np.array(ftvectors)
-# print(ftvectors.shape)
-
-# sio.savemat(drive_path + "data/CUB_200_2011/matfiles/word_vectors.mat", {'word2vectors': word2vectors, 'ftvectors':ftvectors})  
-
-if VEC == 0: # attributes
-  word_vectors = original_att_splits['att'].T
-  vec_d = 312
-  print(word_vectors.shape)
-  print("load attributes")
-elif VEC == 1: # word2vec
-  word_vectors = sio.loadmat(args.root_path + "data/CUB_200_2011/matfiles/word_vectors_sum.mat")['word2vectors']  
-  vec_d = 300
-  print(word_vectors.shape)
-  print("load word2vec")
-elif VEC == 2: # fastText
-  word_vectors = sio.loadmat(args.root_path + "data/CUB_200_2011/matfiles/word_vectors_sum.mat")['ftvectors']  
-  vec_d = 300
-  print(word_vectors.shape)
-  print("load fastText")
-elif VEC == 3: # word2vec::fastText
-  word2vectors = sio.loadmat(args.root_path + "data/CUB_200_2011/matfiles/word_vectors_sum.mat")['word2vectors']  
-  ftvectors = sio.loadmat(args.root_path + "data/CUB_200_2011/matfiles/word_vectors_sum.mat")['ftvectors']  
-  word_vectors = np.concatenate((word2vectors,ftvectors),1)
-  vec_d = 600
-  print(word_vectors.shape)
-  print("load np.cat(word2vec, fastText)")
+# Step 3: read word embeddings (skip)
 
 # Step 4: read all images and preprocess them
 image_root = args.root_path + "data/CUB_200_2011/images/"
@@ -241,11 +170,8 @@ labels = sio.loadmat(args.root_path + "data/CUB_200_2011/matfiles/seg_labels.mat
 train_features = torch.from_numpy(train_features)
 train_labels = labels[trainval_loc]
 train_labels = torch.from_numpy(train_labels)
-trainval_classes = np.array([ image_class[img_id] for img_id in trainval_loc])
-trainval_classes = torch.from_numpy(trainval_classes)
 
-train_data = TensorDataset(train_features, train_labels, trainval_classes)
-# train_data = TensorDataset(train_features[0:2000], train_labels[0:2000], trainval_classes[0:2000])
+train_data = TensorDataset(train_features, train_labels)
 
 test_seen_features = torch.from_numpy(test_seen_features)
 test_seen_labels = labels[test_seen_loc]
@@ -260,7 +186,10 @@ test_unseen_classes = np.array([ image_class[img_id] for img_id in test_unseen_l
 test_unseen_classes = torch.from_numpy(test_unseen_classes)
 
 # Step 7 & 8: load pre-trained image embedding module define and init models
-relation_network = models.initModel(vec_d, IMG_MODEL, allConv)
+
+# init models
+relation_network = models.initModel(0, IMG_MODEL)
+
 relation_network = torch.nn.DataParallel(relation_network, device_ids=gpu_list)
 relation_network.cuda(GPU)
 
@@ -301,9 +230,8 @@ def mIoU_per_class(test_features, test_labels, test_classes, test_batch):
 
   for batch_features, batch_labels, batch_classes in test_loader:
     batch_size = batch_features.shape[0]
-    support_features = torch.tensor([word_vectors[c] for c in batch_classes]).view(batch_size,-1).float().cuda(GPU)
     query_features = batch_features.cuda(GPU).float()
-    relations = relation_network(query_features,support_features).view(batch_size,1,224,224)
+    relations = relation_network(query_features).view(batch_size,1,224,224)
     relations = relations // 0.5 # 0 - background; 1 - target class.
 
     if predict_total is None:
@@ -345,11 +273,9 @@ for episode in range(EPISODE):
   relation_network_scheduler.step(episode)
 
   train_loader = DataLoader(train_data,batch_size=BATCH_SIZE,shuffle=True)
-  batch_features, batch_labels, batch_classes, = train_loader.__iter__().next()
-
-  support_features = torch.tensor([word_vectors[c] for c in batch_classes]).view(BATCH_SIZE,-1).float().cuda(GPU)
+  batch_features, batch_labels = train_loader.__iter__().next()
   batch_features = batch_features.cuda(GPU).float()  # -1*3*224*224
-  relations = relation_network(batch_features,support_features).view(-1,224,224) # B, C, H, W
+  relations = relation_network(batch_features).view(-1,224,224) # B, C, H, W
 
   bce = nn.BCELoss().cuda(GPU)
   loss = bce(relations, batch_labels.view(-1,224,224).float().cuda(GPU))
